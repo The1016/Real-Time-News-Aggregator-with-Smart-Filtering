@@ -34,38 +34,42 @@ public class NewsService{
     private List<NewsArticle> parseArticles(String json) {
         List<NewsArticle> articlesList = new ArrayList<>();
 
-        JsonObject root = JsonParser.parseString(json).getAsJsonObject();
-        JsonArray articles = root.getAsJsonArray("articles");
+        try {
+            JsonObject root = JsonParser.parseString(json).getAsJsonObject();
+            JsonArray articles = root.getAsJsonArray("articles");
 
-        if (articles == null) {
-            return articlesList;
-        }
-
-        for (JsonElement element : articles) {
-            JsonObject articleObj = element.getAsJsonObject();
-
-            String title = getSafeString(articleObj, "title");
-            String author = getSafeString(articleObj, "author");
-            String description = getSafeString(articleObj, "description");
-            String url = getSafeString(articleObj, "url");
-            String publishedAt = getSafeString(articleObj, "publishedAt");
-
-            String sourceName = "";
-            if (articleObj.has("source") && !articleObj.get("source").isJsonNull()) {
-                JsonObject sourceObj = articleObj.getAsJsonObject("source");
-                sourceName = getSafeString(sourceObj, "name");
+            if (articles == null) {
+                return articlesList;
             }
 
-            NewsArticle article = new NewsArticle(
-                    title,
-                    author,
-                    sourceName,
-                    description,
-                    url,
-                    publishedAt
-            );
+            for (JsonElement element : articles) {
+                JsonObject articleObj = element.getAsJsonObject();
 
-            articlesList.add(article);
+                String title = getStringOrDefault(articleObj, "title", "Untitled");
+                String author = getStringOrDefault(articleObj, "author", "Unknown Author");
+                String description = getStringOrDefault(articleObj, "description", "No description available.");
+                String url = getSafeString(articleObj, "url");
+                String publishedAt = getSafeString(articleObj, "publishedAt");
+
+                String sourceName = "Unknown Source";
+                if (articleObj.has("source") && !articleObj.get("source").isJsonNull()) {
+                    JsonObject sourceObj = articleObj.getAsJsonObject("source");
+                    sourceName = getStringOrDefault(sourceObj, "name", "Unknown Source");
+                }
+
+                NewsArticle article = new NewsArticle(
+                        title,
+                        author,
+                        sourceName,
+                        description,
+                        url,
+                        publishedAt
+                );
+
+                articlesList.add(article);
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to parse news data. The server may have returned unexpected content.");
         }
 
         return articlesList;
@@ -76,5 +80,13 @@ public class NewsService{
             return "";
         }
         return obj.get(key).getAsString();
+    }
+
+    private String getStringOrDefault(JsonObject obj, String key, String defaultValue) {
+        if (!obj.has(key) || obj.get(key).isJsonNull()) {
+            return defaultValue;
+        }
+        String value = obj.get(key).getAsString().trim();
+        return value.isEmpty() ? defaultValue : value;
     }
 }

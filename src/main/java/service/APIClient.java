@@ -2,6 +2,7 @@ package service;
 
 import java.io.IOException;
 import java.net.URI;
+import java.net.UnknownHostException;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -21,17 +22,24 @@ public class APIClient {
                 .GET()
                 .build();
 
-        HttpResponse<String> response = client.send(
-                request,
-                HttpResponse.BodyHandlers.ofString()
-        );
-
-        if (response.statusCode() != 200) {
-            throw new RuntimeException(
-                    "HTTP Error: " + response.statusCode() + "\nResponse: " + response.body()
-            );
+        HttpResponse<String> response;
+        try {
+            response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        } catch (UnknownHostException e) {
+            throw new RuntimeException("No internet connection. Please check your network and try again.");
+        } catch (IOException e) {
+            throw new RuntimeException("Network error: Unable to reach the news server. Please try again later.");
         }
 
-        return response.body();
+        switch (response.statusCode()) {
+            case 200:
+                return response.body();
+            case 401:
+                throw new RuntimeException("Invalid API key. Please check your API key configuration.");
+            case 429:
+                throw new RuntimeException("Too many requests. Please wait a moment before trying again.");
+            default:
+                throw new RuntimeException("Server error (HTTP " + response.statusCode() + "). Please try again later.");
+        }
     }
 }
