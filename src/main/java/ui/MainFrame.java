@@ -27,6 +27,8 @@ public class MainFrame extends JFrame {
     private JTable articleTable;
     private DefaultTableModel tableModel;
     private JLabel statusLabel;
+    private JButton filterButton;
+    private JButton refreshButton;
 
     private final NewsService newsService;
 
@@ -50,11 +52,15 @@ public class MainFrame extends JFrame {
         searchField = new JTextField(20);
 
         searchButton = new JButton("Search");
+        filterButton = new JButton("Filter");
+        refreshButton = new JButton("Refresh");
 
         topPanel.add(categoryComboBox);
         topPanel.add(fetchButton);
         topPanel.add(searchField);
         topPanel.add(searchButton);
+        topPanel.add(filterButton);
+        topPanel.add(refreshButton);
 
         String[] columnNames = {"Title", "Source", "Published Date"};
         tableModel = new DefaultTableModel(columnNames, 0) {
@@ -155,5 +161,31 @@ public class MainFrame extends JFrame {
     private void showError(String message) {
         statusLabel.setText("Error: " + message);
         JOptionPane.showMessageDialog(this, message, "Error", JOptionPane.ERROR_MESSAGE);
+
+        fetchButton.addActionListener(e -> {
+            String selected = (String) categoryComboBox.getSelectedItem();
+            System.out.println("[FETCH] Category: " + selected);
+            statusLabel.setText("Fetching: " + selected);
+        });
+
+        searchButton.addActionListener(e -> {
+            String keyword = searchField.getText().trim();
+            System.out.println("[SEARCH] Keyword: " + keyword);
+            statusLabel.setText("Searching: " + keyword);
+        });
+
+        filterButton.addActionListener(e -> {
+            String keyword = searchField.getText().trim();
+            String category = (String) categoryComboBox.getSelectedItem();
+            System.out.println("[FILTER] Category: " + category + " | Keyword: " + keyword);
+            statusLabel.setText("Filtering: " + category + " / " + keyword);
+        });
+
+        refreshButton.addActionListener(e -> {
+            System.out.println("[REFRESH] Refreshing...");
+            searchField.setText("");
+            categoryComboBox.setSelectedIndex(0);
+            statusLabel.setText("Refreshed.");
+        });
     }
 }
