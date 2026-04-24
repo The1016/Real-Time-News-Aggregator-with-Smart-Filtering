@@ -2,7 +2,9 @@ package ui;
 
 import java.awt.*;
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.TreeSet;
 
 import javax.swing.JButton;
 import javax.swing.JComboBox;
@@ -17,15 +19,18 @@ import javax.swing.SwingWorker;
 import javax.swing.table.DefaultTableModel;
 
 import model.NewsArticle;
+import service.FilterEngine;
 import service.NewsService;
 
 public class MainFrame extends JFrame {
 
     private JComboBox<String> categoryComboBox;
+    private JComboBox<String> sourceComboBox;
     private JButton fetchButton;
     private JTextField searchField;
     private JButton searchButton;
     private JButton filterButton;
+    private JButton resetButton;
     private JButton refreshButton;
     private JTable articleTable;
     private DefaultTableModel tableModel;
@@ -36,19 +41,19 @@ public class MainFrame extends JFrame {
 
 
     private final NewsService newsService;
+    private final FilterEngine filterEngine;
 
     private List<NewsArticle> currentArticles;
 
     public MainFrame() {
         newsService = new NewsService();
+        filterEngine = new FilterEngine();
 
         setTitle("News Aggregator Dashboard");
         setSize(900, 600);
         setLocationRelativeTo(null);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLayout(new BorderLayout());
-
-        JPanel topPanel = new JPanel();
 
         String[] categories = {"Business", "Technology", "Sports", "Health"};
         categoryComboBox = new JComboBox<>(categories);
@@ -57,18 +62,32 @@ public class MainFrame extends JFrame {
         searchField = new JTextField(20);
         searchButton = new JButton("Search");
         filterButton = new JButton("Filter");
+        resetButton = new JButton("Reset Filter");
         refreshButton = new JButton("Refresh");
-
         openButton = new JButton("Open Article");
 
-        topPanel.add(categoryComboBox);
-        topPanel.add(fetchButton);
-        topPanel.add(searchField);
-        topPanel.add(searchButton);
-        topPanel.add(filterButton);
-        topPanel.add(refreshButton);
+        sourceComboBox = new JComboBox<>(new String[]{"All Sources"});
+        sourceComboBox.setPreferredSize(new Dimension(160, 24));
 
-        topPanel.add(openButton);
+        // Row 1: fetch controls
+        JPanel fetchPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        fetchPanel.add(categoryComboBox);
+        fetchPanel.add(fetchButton);
+        fetchPanel.add(searchField);
+        fetchPanel.add(searchButton);
+        fetchPanel.add(refreshButton);
+
+        // Row 2: filter controls
+        JPanel filterPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        filterPanel.add(new JLabel("Source:"));
+        filterPanel.add(sourceComboBox);
+        filterPanel.add(filterButton);
+        filterPanel.add(resetButton);
+        filterPanel.add(openButton);
+
+        JPanel northContainer = new JPanel(new GridLayout(2, 1));
+        northContainer.add(fetchPanel);
+        northContainer.add(filterPanel);
 
 
         String[] columnNames = {"Title", "Source", "Published Date"};
@@ -85,13 +104,14 @@ public class MainFrame extends JFrame {
 
         statusLabel = new JLabel("Ready — select a category and click Fetch News.");
 
-        add(topPanel, BorderLayout.NORTH);
+        add(northContainer, BorderLayout.NORTH);
         add(scrollPane, BorderLayout.CENTER);
         add(statusLabel, BorderLayout.SOUTH);
 
         fetchButton.addActionListener(e -> fetchByCategory());
         searchButton.addActionListener(e -> fetchByKeyword());
         filterButton.addActionListener(e -> filterCurrentArticles());
+        resetButton.addActionListener(e -> resetFilter());
         refreshButton.addActionListener(e -> refreshApp());
 
         openButton.addActionListener(e -> openSelectedArticle());
@@ -117,6 +137,7 @@ public class MainFrame extends JFrame {
 
                 try {
                     currentArticles = get();
+                    updateSourceDropdown(currentArticles);
                     populateTable(currentArticles, "category \"" + category + "\"");
                 } catch (Exception ex) {
                     Throwable cause = ex.getCause();
@@ -150,6 +171,7 @@ public class MainFrame extends JFrame {
 
                 try {
                     currentArticles = get();
+                    updateSourceDropdown(currentArticles);
                     populateTable(currentArticles, "keyword \"" + keyword + "\"");
                 } catch (Exception ex) {
                     Throwable cause = ex.getCause();
@@ -160,42 +182,51 @@ public class MainFrame extends JFrame {
     }
 
     private void filterCurrentArticles() {
-        String keyword = searchField.getText().trim().toLowerCase();
-        String category = (String) categoryComboBox.getSelectedItem();
+        String keyword = searchField.getText().trim();
+        String selectedSource = (String) sourceComboBox.getSelectedItem();
+        boolean hasKeyword = !keyword.isEmpty();
+        boolean hasSource = selectedSource != null && !selectedSource.equals("All Sources");
 
-        System.out.println("[FILTER] Category: " + category + " | Keyword: " + keyword);
+        System.out.println("[FILTER] Keyword: " + keyword + " | Source: " + selectedSource);
 
         if (currentArticles == null || currentArticles.isEmpty()) {
             statusLabel.setText("Please fetch news first before filtering.");
             return;
         }
 
-        if (keyword.isEmpty()) {
+        if (!hasKeyword && !hasSource) {
             populateTable(currentArticles, "current results");
             return;
         }
 
-        tableModel.setRowCount(0);
+        List<NewsArticle> filtered = new ArrayList<>(currentArticles);
 
-        int count = 0;
-
-        for (NewsArticle article : currentArticles) {
-            String title = article.getTitle() == null ? "" : article.getTitle().toLowerCase();
-            String source = article.getSource() == null ? "" : article.getSource().toLowerCase();
-            String date = article.getPublishedAt() == null ? "" : article.getPublishedAt().toLowerCase();
-
-            if (title.contains(keyword) || source.contains(keyword) || date.contains(keyword)) {
-                tableModel.addRow(new Object[] {
-                        article.getTitle(),
-                        article.getSource(),
-                        article.getPublishedAt()
-                });
-
-                count++;
-            }
+        if (hasKeyword) {
+            filtered = filterEngine.filterByKeyword(filtered, keyword);
         }
 
-        statusLabel.setText("Filtered " + count + " articles using keyword \"" + keyword + "\".");
+        if (hasSource) {
+            filtered = filterEngine.filterBySource(filtered, selectedSource);
+        }
+
+        String context = hasKeyword && hasSource
+                ? "keyword \"" + keyword + "\" from \"" + selectedSource + "\""
+                : hasKeyword ? "keyword \"" + keyword + "\""
+                : "source \"" + selectedSource + "\"";
+
+        populateTable(filtered, context);
+    }
+
+    private void resetFilter() {
+        searchField.setText("");
+        sourceComboBox.setSelectedIndex(0);
+
+        if (currentArticles == null || currentArticles.isEmpty()) {
+            statusLabel.setText("No articles loaded. Fetch news first.");
+            return;
+        }
+
+        populateTable(currentArticles, "all fetched articles");
     }
 
     private void refreshApp() {
@@ -203,6 +234,8 @@ public class MainFrame extends JFrame {
 
         searchField.setText("");
         categoryComboBox.setSelectedIndex(0);
+        sourceComboBox.removeAllItems();
+        sourceComboBox.addItem("All Sources");
         tableModel.setRowCount(0);
         currentArticles = null;
 
@@ -266,7 +299,9 @@ public class MainFrame extends JFrame {
         fetchButton.setEnabled(!loading);
         searchButton.setEnabled(!loading);
         filterButton.setEnabled(!loading);
+        resetButton.setEnabled(!loading);
         refreshButton.setEnabled(!loading);
+        sourceComboBox.setEnabled(!loading);
 
         openButton.setEnabled(!loading);
 
@@ -274,6 +309,23 @@ public class MainFrame extends JFrame {
 
         if (loading) {
             statusLabel.setText("Loading...");
+        }
+    }
+
+    private void updateSourceDropdown(List<NewsArticle> articles) {
+        TreeSet<String> sources = new TreeSet<>();
+        if (articles != null) {
+            for (NewsArticle a : articles) {
+                if (a.getSource() != null && !a.getSource().isBlank()) {
+                    sources.add(a.getSource());
+                }
+            }
+        }
+
+        sourceComboBox.removeAllItems();
+        sourceComboBox.addItem("All Sources");
+        for (String source : sources) {
+            sourceComboBox.addItem(source);
         }
     }
 
