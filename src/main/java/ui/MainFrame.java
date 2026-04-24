@@ -1,6 +1,7 @@
 package ui;
 
-import java.awt.BorderLayout;
+import java.awt.*;
+import java.net.URI;
 import java.util.List;
 
 import javax.swing.JButton;
@@ -30,6 +31,10 @@ public class MainFrame extends JFrame {
     private DefaultTableModel tableModel;
     private JLabel statusLabel;
 
+
+    private JButton openButton;
+
+
     private final NewsService newsService;
 
     private List<NewsArticle> currentArticles;
@@ -54,12 +59,17 @@ public class MainFrame extends JFrame {
         filterButton = new JButton("Filter");
         refreshButton = new JButton("Refresh");
 
+        openButton = new JButton("Open Article");
+
         topPanel.add(categoryComboBox);
         topPanel.add(fetchButton);
         topPanel.add(searchField);
         topPanel.add(searchButton);
         topPanel.add(filterButton);
         topPanel.add(refreshButton);
+
+        topPanel.add(openButton);
+
 
         String[] columnNames = {"Title", "Source", "Published Date"};
 
@@ -83,6 +93,9 @@ public class MainFrame extends JFrame {
         searchButton.addActionListener(e -> fetchByKeyword());
         filterButton.addActionListener(e -> filterCurrentArticles());
         refreshButton.addActionListener(e -> refreshApp());
+
+        openButton.addActionListener(e -> openSelectedArticle());
+
     }
 
     private void fetchByCategory() {
@@ -196,6 +209,40 @@ public class MainFrame extends JFrame {
         statusLabel.setText("Refreshed. Select a category and click Fetch News.");
     }
 
+    private void openSelectedArticle() {
+        int selectedRow = articleTable.getSelectedRow();
+
+        if (selectedRow == -1) {
+            statusLabel.setText("Please select an article to open.");
+            return;
+        }
+
+        if (currentArticles == null || selectedRow >= currentArticles.size()) {
+            statusLabel.setText("Could not find the selected article.");
+            return;
+        }
+
+        NewsArticle article = currentArticles.get(selectedRow);
+        String url = article.getUrl();
+
+        if (url == null || url.trim().isEmpty()) {
+            showError("No URL available for this article.");
+            return;
+        }
+
+        if (!Desktop.isDesktopSupported() || !Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
+            showError("Opening URLs is not supported on this system.");
+            return;
+        }
+
+        try {
+            Desktop.getDesktop().browse(new URI(url));
+            statusLabel.setText("Opened: " + article.getTitle());
+        } catch (Exception ex) {
+            showError("Failed to open article: " + ex.getMessage());
+        }
+    }
+
     private void populateTable(List<NewsArticle> articles, String context) {
         tableModel.setRowCount(0);
 
@@ -220,6 +267,10 @@ public class MainFrame extends JFrame {
         searchButton.setEnabled(!loading);
         filterButton.setEnabled(!loading);
         refreshButton.setEnabled(!loading);
+
+        openButton.setEnabled(!loading);
+
+
 
         if (loading) {
             statusLabel.setText("Loading...");
