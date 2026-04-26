@@ -3,6 +3,7 @@ package filter;
 import model.NewsArticle;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.TreeSet;
 
@@ -23,6 +24,8 @@ public class FilterEngine {
             filteredArticles = filterBySource(filteredArticles, source);
         }
 
+        sortByScore(filteredArticles);
+
         return filteredArticles;
     }
 
@@ -38,11 +41,16 @@ public class FilterEngine {
         for (NewsArticle article : articles) {
             String title = safeText(article.getTitle()).toLowerCase();
             String description = safeText(article.getDescription()).toLowerCase();
+            String source = safeText(article.getSource()).toLowerCase();
 
-            if (title.contains(searchText) || description.contains(searchText)) {
+            if (title.contains(searchText)
+                    || description.contains(searchText)
+                    || source.contains(searchText)) {
                 filteredArticles.add(article);
             }
         }
+
+        sortByScore(filteredArticles);
 
         return filteredArticles;
     }
@@ -63,6 +71,8 @@ public class FilterEngine {
                 filteredArticles.add(article);
             }
         }
+
+        sortByScore(filteredArticles);
 
         return filteredArticles;
     }
@@ -108,14 +118,18 @@ public class FilterEngine {
         return hasKeyword(keyword) || hasSource(source);
     }
 
-    private boolean hasKeyword(String keyword) {
+    public boolean hasKeyword(String keyword) {
         return keyword != null && !keyword.trim().isEmpty();
     }
 
-    private boolean hasSource(String source) {
+    public boolean hasSource(String source) {
         return source != null
                 && !source.trim().isEmpty()
                 && !source.equals("All Sources");
+    }
+
+    private void sortByScore(List<NewsArticle> articles) {
+        articles.sort(Comparator.comparingInt(NewsArticle::getScore).reversed());
     }
 
     private String safeText(String text) {

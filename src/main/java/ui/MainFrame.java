@@ -2,6 +2,7 @@ package ui;
 
 import filter.FilterEngine;
 import model.NewsArticle;
+import service.APIConfig;
 import service.NewsService;
 
 import javax.swing.JButton;
@@ -31,10 +32,10 @@ import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.GridLayout;
 import java.net.URI;
-import java.util.List;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.util.List;
 import java.util.Locale;
 
 public class MainFrame extends JFrame {
@@ -82,6 +83,25 @@ public class MainFrame extends JFrame {
         setupArticleTable();
         setupStatusBar();
         setupButtonActions();
+
+        fetchHotTopics();
+    }
+
+    public MainFrame(List<NewsArticle> startingArticles) {
+        newsService = new NewsService();
+        filterEngine = new FilterEngine();
+
+        applyDarkTheme();
+
+        setupWindow();
+        setupTopControls();
+        setupArticleTable();
+        setupStatusBar();
+        setupButtonActions();
+
+        currentArticles = startingArticles;
+        updateSourceDropdown(currentArticles);
+        populateTable(currentArticles, "today's hot topics");
     }
 
     private void applyDarkTheme() {
@@ -133,9 +153,9 @@ public class MainFrame extends JFrame {
     }
 
     private void setupTopControls() {
-        String[] categories = {"Business", "Technology", "Sports", "Health"};
+        categoryComboBox = new JComboBox<>(APIConfig.CATEGORIES);
+        categoryComboBox.setSelectedItem("General");
 
-        categoryComboBox = new JComboBox<>(categories);
         sourceComboBox = new JComboBox<>(new String[]{"All Sources"});
 
         fetchButton = new JButton("Fetch News");
@@ -202,7 +222,7 @@ public class MainFrame extends JFrame {
     }
 
     private void setupArticleTable() {
-        String[] columnNames = {"Title", "Source", "Published Date"};
+        String[] columnNames = {"Title", "Key Points", "Source", "Published Date"};
 
         tableModel = new DefaultTableModel(columnNames, 0) {
             @Override
@@ -213,7 +233,7 @@ public class MainFrame extends JFrame {
 
         articleTable = new JTable(tableModel);
         articleTable.setFont(new Font("Arial", Font.PLAIN, 16));
-        articleTable.setRowHeight(72);
+        articleTable.setRowHeight(92);
         articleTable.setAutoResizeMode(JTable.AUTO_RESIZE_ALL_COLUMNS);
 
         articleTable.setBackground(BACKGROUND_COLOR);
@@ -236,16 +256,19 @@ public class MainFrame extends JFrame {
         header.setPreferredSize(new Dimension(header.getPreferredSize().width, 36));
 
         articleTable.getColumnModel().getColumn(0).setCellRenderer(new WrappedTextCellRenderer());
-        articleTable.getColumnModel().getColumn(1).setCellRenderer(new CenterCellRenderer());
+        articleTable.getColumnModel().getColumn(1).setCellRenderer(new WrappedTextCellRenderer());
         articleTable.getColumnModel().getColumn(2).setCellRenderer(new CenterCellRenderer());
+        articleTable.getColumnModel().getColumn(3).setCellRenderer(new CenterCellRenderer());
 
         TableColumn titleColumn = articleTable.getColumnModel().getColumn(0);
-        TableColumn sourceColumn = articleTable.getColumnModel().getColumn(1);
-        TableColumn dateColumn = articleTable.getColumnModel().getColumn(2);
+        TableColumn keyPointsColumn = articleTable.getColumnModel().getColumn(1);
+        TableColumn sourceColumn = articleTable.getColumnModel().getColumn(2);
+        TableColumn dateColumn = articleTable.getColumnModel().getColumn(3);
 
-        titleColumn.setPreferredWidth(650);
-        sourceColumn.setPreferredWidth(180);
-        dateColumn.setPreferredWidth(180);
+        titleColumn.setPreferredWidth(420);
+        keyPointsColumn.setPreferredWidth(520);
+        sourceColumn.setPreferredWidth(170);
+        dateColumn.setPreferredWidth(170);
 
         JScrollPane scrollPane = new JScrollPane(articleTable);
         scrollPane.setBackground(BACKGROUND_COLOR);
@@ -256,7 +279,7 @@ public class MainFrame extends JFrame {
     }
 
     private void setupStatusBar() {
-        statusLabel = new JLabel("Ready — select a category and click Fetch News.");
+        statusLabel = new JLabel("Loading today's hot topics...");
         statusLabel.setFont(new Font("Arial", Font.PLAIN, 14));
         statusLabel.setForeground(MUTED_TEXT_COLOR);
         statusLabel.setBackground(PANEL_COLOR);
@@ -278,8 +301,40 @@ public class MainFrame extends JFrame {
         openButton.addActionListener(e -> openSelectedArticle());
     }
 
+    private void fetchHotTopics() {
+        System.out.println("[DEFAULT] Fetching today's hot topics...");
+
+        setLoading(true);
+
+        new SwingWorker<List<NewsArticle>, Void>() {
+            @Override
+            protected List<NewsArticle> doInBackground() throws Exception {
+                return newsService.fetchHotTopics();
+            }
+
+            @Override
+            protected void done() {
+                setLoading(false);
+
+                try {
+                    currentArticles = get();
+                    updateSourceDropdown(currentArticles);
+                    populateTable(currentArticles, "today's hot topics");
+                } catch (Exception ex) {
+                    Throwable cause = ex.getCause();
+                    showError(cause != null ? cause.getMessage() : ex.getMessage());
+                }
+            }
+        }.execute();
+    }
+
     private void fetchByCategory() {
         String category = (String) categoryComboBox.getSelectedItem();
+
+        if (category == null || category.trim().isEmpty()) {
+            statusLabel.setText("Please select a category.");
+            return;
+        }
 
         System.out.println("[FETCH] Category: " + category);
 
@@ -372,7 +427,8 @@ public class MainFrame extends JFrame {
         sourceComboBox.setSelectedIndex(0);
 
         if (currentArticles == null || currentArticles.isEmpty()) {
-            statusLabel.setText("No articles loaded. Fetch news first.");
+            statusLabel.setText("No articles loaded. Fetching today's hot topics again.");
+            fetchHotTopics();
             return;
         }
 
@@ -383,7 +439,7 @@ public class MainFrame extends JFrame {
         System.out.println("[REFRESH] Refreshing...");
 
         searchField.setText("");
-        categoryComboBox.setSelectedIndex(0);
+        categoryComboBox.setSelectedItem("General");
 
         sourceComboBox.removeAllItems();
         sourceComboBox.addItem("All Sources");
@@ -393,7 +449,7 @@ public class MainFrame extends JFrame {
         currentArticles = null;
         displayedArticles = null;
 
-        statusLabel.setText("Refreshed. Select a category and click Fetch News.");
+        fetchHotTopics();
     }
 
     private void openSelectedArticle() {
@@ -443,12 +499,31 @@ public class MainFrame extends JFrame {
         for (NewsArticle article : articles) {
             tableModel.addRow(new Object[]{
                     article.getTitle(),
+                    buildKeyPoints(article),
                     article.getSource(),
                     formatPublishedDate(article.getPublishedAt())
             });
         }
 
-        statusLabel.setText("Showing " + articles.size() + " articles for " + context + ".");
+        statusLabel.setText("Showing " + articles.size() + " articles for " + context + ", ranked by relevance.");
+    }
+
+    private String buildKeyPoints(NewsArticle article) {
+        String description = article.getDescription();
+
+        if (description == null
+                || description.trim().isEmpty()
+                || description.equalsIgnoreCase("No description available.")) {
+            return "• No short preview available. Open the article to read more.";
+        }
+
+        description = description.trim().replaceAll("\\s+", " ");
+
+        if (description.length() > 230) {
+            description = description.substring(0, 230).trim() + "...";
+        }
+
+        return "• " + description;
     }
 
     private void updateSourceDropdown(List<NewsArticle> articles) {
@@ -611,6 +686,7 @@ public class MainFrame extends JFrame {
             return component;
         }
     }
+
     private String formatPublishedDate(String rawDate) {
         if (rawDate == null || rawDate.trim().isEmpty()) {
             return "Unknown date";
@@ -646,6 +722,4 @@ public class MainFrame extends JFrame {
                 return "th";
         }
     }
-
-
 }
