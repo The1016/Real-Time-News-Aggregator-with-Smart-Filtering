@@ -1,9 +1,11 @@
 package ui;
 
 import filter.FilterEngine;
+import model.Bookmark;
 import model.NewsArticle;
 import service.APIConfig;
 import service.NewsService;
+import service.BookmarkStorage;
 
 import javax.swing.JButton;
 import javax.swing.JComboBox;
@@ -22,8 +24,11 @@ import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.JTableHeader;
 import javax.swing.table.TableColumn;
+import javax.swing.JScrollBar;
+import javax.swing.plaf.basic.BasicScrollBarUI;
 
 import java.awt.BorderLayout;
+import java.awt.CardLayout;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Desktop;
@@ -32,9 +37,11 @@ import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.GridLayout;
 import java.net.URI;
+import java.time.LocalDateTime;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
@@ -59,29 +66,47 @@ public class MainFrame extends JFrame {
     private JButton resetButton;
     private JButton refreshButton;
     private JButton openButton;
+    private JButton addBookmarkButton;
+    private JButton viewBookmarksButton;
+    private JButton backToNewsButton;
+    private JButton openBookmarkedArticleButton;
+    private JButton removeBookmarkButton;
 
     private JTextField searchField;
 
     private JTable articleTable;
+    private JTable bookmarkTable;
+
     private DefaultTableModel tableModel;
+    private DefaultTableModel bookmarkTableModel;
+
     private JLabel statusLabel;
+    private JLabel bookmarkStatusLabel;
 
     private final NewsService newsService;
     private final FilterEngine filterEngine;
+    private final BookmarkStorage bookmarkStorage;
 
     private List<NewsArticle> currentArticles;
     private List<NewsArticle> displayedArticles;
+    private List<Bookmark> bookmarks;
+
+
+    private CardLayout cardLayout;
+    private JPanel mainPanel;
+    private JPanel newsPage;
+    private JPanel bookmarksPage;
 
     public MainFrame() {
         newsService = new NewsService();
         filterEngine = new FilterEngine();
+        bookmarkStorage = new BookmarkStorage();
+        bookmarks = bookmarkStorage.loadBookmarks();
 
         applyDarkTheme();
 
         setupWindow();
-        setupTopControls();
-        setupArticleTable();
-        setupStatusBar();
+        setupPages();
         setupButtonActions();
 
         fetchHotTopics();
@@ -90,13 +115,13 @@ public class MainFrame extends JFrame {
     public MainFrame(List<NewsArticle> startingArticles) {
         newsService = new NewsService();
         filterEngine = new FilterEngine();
+        bookmarkStorage = new BookmarkStorage();
+        bookmarks = bookmarkStorage.loadBookmarks();
 
         applyDarkTheme();
 
         setupWindow();
-        setupTopControls();
-        setupArticleTable();
-        setupStatusBar();
+        setupPages();
         setupButtonActions();
 
         currentArticles = startingArticles;
@@ -144,12 +169,34 @@ public class MainFrame extends JFrame {
     private void setupWindow() {
         setTitle("News Aggregator Dashboard");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        setLayout(new BorderLayout());
         getContentPane().setBackground(BACKGROUND_COLOR);
 
         setExtendedState(JFrame.MAXIMIZED_BOTH);
         setMinimumSize(new Dimension(1000, 650));
         setLocationRelativeTo(null);
+    }
+
+    private void setupPages() {
+        cardLayout = new CardLayout();
+        mainPanel = new JPanel(cardLayout);
+
+        newsPage = new JPanel(new BorderLayout());
+        newsPage.setBackground(BACKGROUND_COLOR);
+
+        bookmarksPage = new JPanel(new BorderLayout());
+        bookmarksPage.setBackground(BACKGROUND_COLOR);
+
+        setupTopControls();
+        setupArticleTable();
+        setupStatusBar();
+        setupBookmarksPage();
+
+        mainPanel.add(newsPage, "NEWS_PAGE");
+        mainPanel.add(bookmarksPage, "BOOKMARKS_PAGE");
+
+        add(mainPanel);
+
+        cardLayout.show(mainPanel, "NEWS_PAGE");
     }
 
     private void setupTopControls() {
@@ -164,6 +211,8 @@ public class MainFrame extends JFrame {
         resetButton = new JButton("Reset Filter");
         refreshButton = new JButton("Refresh");
         openButton = new JButton("Open Article");
+        addBookmarkButton = new JButton("Add Bookmark");
+        viewBookmarksButton = new JButton("Bookmarks");
 
         searchField = new JTextField(24);
 
@@ -181,10 +230,11 @@ public class MainFrame extends JFrame {
         styleButton(resetButton);
         styleButton(refreshButton);
         styleButton(openButton);
+        styleButton(addBookmarkButton);
+        styleButton(viewBookmarksButton);
 
         JPanel fetchPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 10));
         fetchPanel.setBackground(PANEL_COLOR);
-        fetchPanel.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, GRID_COLOR));
 
         JLabel categoryLabel = new JLabel("Category:");
         JLabel searchLabel = new JLabel("Search:");
@@ -202,7 +252,6 @@ public class MainFrame extends JFrame {
 
         JPanel filterPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 10));
         filterPanel.setBackground(PANEL_COLOR);
-        filterPanel.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, GRID_COLOR));
 
         JLabel sourceLabel = new JLabel("Source:");
         styleLabel(sourceLabel);
@@ -212,13 +261,88 @@ public class MainFrame extends JFrame {
         filterPanel.add(filterButton);
         filterPanel.add(resetButton);
         filterPanel.add(openButton);
+        filterPanel.add(addBookmarkButton);
 
-        JPanel topContainer = new JPanel(new GridLayout(2, 1));
+        JPanel topLeftContainer = new JPanel(new GridLayout(2, 1));
+        topLeftContainer.setBackground(PANEL_COLOR);
+        topLeftContainer.add(fetchPanel);
+        topLeftContainer.add(filterPanel);
+
+        JPanel topRightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 12, 10));
+        topRightPanel.setBackground(PANEL_COLOR);
+        topRightPanel.add(viewBookmarksButton);
+
+        JPanel topContainer = new JPanel(new BorderLayout());
         topContainer.setBackground(PANEL_COLOR);
-        topContainer.add(fetchPanel);
-        topContainer.add(filterPanel);
 
-        add(topContainer, BorderLayout.NORTH);
+        topContainer.add(topLeftContainer, BorderLayout.CENTER);
+        topContainer.add(topRightPanel, BorderLayout.EAST);
+
+        // This creates one clean full-width line under the whole top area.
+        topContainer.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, GRID_COLOR));
+
+        newsPage.add(topContainer, BorderLayout.NORTH);
+    }
+    private void styleScrollPane(JScrollPane scrollPane) {
+        scrollPane.setBackground(BACKGROUND_COLOR);
+        scrollPane.getViewport().setBackground(BACKGROUND_COLOR);
+        scrollPane.setBorder(BorderFactory.createLineBorder(GRID_COLOR, 1));
+
+        JScrollBar verticalBar = scrollPane.getVerticalScrollBar();
+        JScrollBar horizontalBar = scrollPane.getHorizontalScrollBar();
+
+        verticalBar.setPreferredSize(new Dimension(12, Integer.MAX_VALUE));
+        horizontalBar.setPreferredSize(new Dimension(Integer.MAX_VALUE, 12));
+
+        verticalBar.setBackground(BACKGROUND_COLOR);
+        horizontalBar.setBackground(BACKGROUND_COLOR);
+
+        verticalBar.setUnitIncrement(16);
+        horizontalBar.setUnitIncrement(16);
+
+        verticalBar.setUI(new BasicScrollBarUI() {
+            @Override
+            protected void configureScrollBarColors() {
+                this.thumbColor = GRID_COLOR;
+                this.trackColor = FIELD_COLOR;
+            }
+
+            @Override
+            protected JButton createDecreaseButton(int orientation) {
+                return createInvisibleScrollButton();
+            }
+
+            @Override
+            protected JButton createIncreaseButton(int orientation) {
+                return createInvisibleScrollButton();
+            }
+        });
+
+        horizontalBar.setUI(new BasicScrollBarUI() {
+            @Override
+            protected void configureScrollBarColors() {
+                this.thumbColor = GRID_COLOR;
+                this.trackColor = FIELD_COLOR;
+            }
+
+            @Override
+            protected JButton createDecreaseButton(int orientation) {
+                return createInvisibleScrollButton();
+            }
+
+            @Override
+            protected JButton createIncreaseButton(int orientation) {
+                return createInvisibleScrollButton();
+            }
+        });
+    }
+
+    private JButton createInvisibleScrollButton() {
+        JButton button = new JButton();
+        button.setPreferredSize(new Dimension(0, 0));
+        button.setMinimumSize(new Dimension(0, 0));
+        button.setMaximumSize(new Dimension(0, 0));
+        return button;
     }
 
     private void setupArticleTable() {
@@ -271,11 +395,9 @@ public class MainFrame extends JFrame {
         dateColumn.setPreferredWidth(170);
 
         JScrollPane scrollPane = new JScrollPane(articleTable);
-        scrollPane.setBackground(BACKGROUND_COLOR);
-        scrollPane.getViewport().setBackground(BACKGROUND_COLOR);
-        scrollPane.setBorder(BorderFactory.createLineBorder(GRID_COLOR, 1));
+        styleScrollPane(scrollPane);
 
-        add(scrollPane, BorderLayout.CENTER);
+        newsPage.add(scrollPane, BorderLayout.CENTER);
     }
 
     private void setupStatusBar() {
@@ -289,7 +411,100 @@ public class MainFrame extends JFrame {
                 BorderFactory.createEmptyBorder(10, 12, 10, 12)
         ));
 
-        add(statusLabel, BorderLayout.SOUTH);
+        newsPage.add(statusLabel, BorderLayout.SOUTH);
+    }
+
+    private void setupBookmarksPage() {
+        JPanel topPanel = new JPanel(new BorderLayout());
+        topPanel.setBackground(PANEL_COLOR);
+        topPanel.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, GRID_COLOR));
+
+        JLabel titleLabel = new JLabel("Bookmarked Articles");
+        titleLabel.setFont(new Font("Arial", Font.BOLD, 22));
+        titleLabel.setForeground(TEXT_COLOR);
+        titleLabel.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
+
+        openBookmarkedArticleButton = new JButton("Open Article");
+        removeBookmarkButton = new JButton("Remove Bookmark");
+        backToNewsButton = new JButton("Back to News");
+
+        styleButton(openBookmarkedArticleButton);
+        styleButton(removeBookmarkButton);
+        styleButton(backToNewsButton);
+
+        JPanel leftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 10));
+        leftPanel.setBackground(PANEL_COLOR);
+        leftPanel.add(titleLabel);
+        leftPanel.add(openBookmarkedArticleButton);
+        leftPanel.add(removeBookmarkButton);
+
+        JPanel rightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 12, 10));
+        rightPanel.setBackground(PANEL_COLOR);
+        rightPanel.add(backToNewsButton);
+
+        topPanel.add(leftPanel, BorderLayout.WEST);
+        topPanel.add(rightPanel, BorderLayout.EAST);
+
+        String[] bookmarkColumns = {"Title", "Key Points", "Source", "Published Date", "Saved At"};
+
+        bookmarkTableModel = new DefaultTableModel(bookmarkColumns, 0) {
+            @Override
+            public boolean isCellEditable(int row, int column) {
+                return false;
+            }
+        };
+
+        bookmarkTable = new JTable(bookmarkTableModel);
+        bookmarkTable.setFont(new Font("Arial", Font.PLAIN, 16));
+        bookmarkTable.setRowHeight(92);
+        bookmarkTable.setAutoResizeMode(JTable.AUTO_RESIZE_ALL_COLUMNS);
+
+        bookmarkTable.setBackground(BACKGROUND_COLOR);
+        bookmarkTable.setForeground(TEXT_COLOR);
+        bookmarkTable.setSelectionBackground(SELECTION_COLOR);
+        bookmarkTable.setSelectionForeground(Color.WHITE);
+
+        bookmarkTable.setShowGrid(true);
+        bookmarkTable.setGridColor(GRID_COLOR);
+        bookmarkTable.setIntercellSpacing(new Dimension(1, 1));
+        bookmarkTable.setFillsViewportHeight(true);
+        bookmarkTable.setFocusable(false);
+
+        JTableHeader header = bookmarkTable.getTableHeader();
+        header.setFont(new Font("Arial", Font.BOLD, 16));
+        header.setBackground(FIELD_COLOR);
+        header.setForeground(TEXT_COLOR);
+        header.setBorder(BorderFactory.createMatteBorder(0, 0, 2, 0, GRID_COLOR));
+        header.setPreferredSize(new Dimension(header.getPreferredSize().width, 36));
+
+        bookmarkTable.getColumnModel().getColumn(0).setCellRenderer(new WrappedTextCellRenderer());
+        bookmarkTable.getColumnModel().getColumn(1).setCellRenderer(new WrappedTextCellRenderer());
+        bookmarkTable.getColumnModel().getColumn(2).setCellRenderer(new CenterCellRenderer());
+        bookmarkTable.getColumnModel().getColumn(3).setCellRenderer(new CenterCellRenderer());
+        bookmarkTable.getColumnModel().getColumn(4).setCellRenderer(new CenterCellRenderer());
+
+        bookmarkTable.getColumnModel().getColumn(0).setPreferredWidth(380);
+        bookmarkTable.getColumnModel().getColumn(1).setPreferredWidth(480);
+        bookmarkTable.getColumnModel().getColumn(2).setPreferredWidth(160);
+        bookmarkTable.getColumnModel().getColumn(3).setPreferredWidth(160);
+        bookmarkTable.getColumnModel().getColumn(4).setPreferredWidth(160);
+
+        JScrollPane scrollPane = new JScrollPane(bookmarkTable);
+        styleScrollPane(scrollPane);
+
+        bookmarkStatusLabel = new JLabel("No bookmarks added yet.");
+        bookmarkStatusLabel.setFont(new Font("Arial", Font.PLAIN, 14));
+        bookmarkStatusLabel.setForeground(MUTED_TEXT_COLOR);
+        bookmarkStatusLabel.setBackground(PANEL_COLOR);
+        bookmarkStatusLabel.setOpaque(true);
+        bookmarkStatusLabel.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(1, 0, 0, 0, GRID_COLOR),
+                BorderFactory.createEmptyBorder(10, 12, 10, 12)
+        ));
+
+        bookmarksPage.add(topPanel, BorderLayout.NORTH);
+        bookmarksPage.add(scrollPane, BorderLayout.CENTER);
+        bookmarksPage.add(bookmarkStatusLabel, BorderLayout.SOUTH);
     }
 
     private void setupButtonActions() {
@@ -299,6 +514,18 @@ public class MainFrame extends JFrame {
         resetButton.addActionListener(e -> resetFilter());
         refreshButton.addActionListener(e -> refreshApp());
         openButton.addActionListener(e -> openSelectedArticle());
+
+
+        addBookmarkButton.addActionListener(e -> addSelectedArticleToBookmarks());
+
+        viewBookmarksButton.addActionListener(e -> {
+            refreshBookmarkTable();
+            cardLayout.show(mainPanel, "BOOKMARKS_PAGE");
+        });
+
+        backToNewsButton.addActionListener(e -> cardLayout.show(mainPanel, "NEWS_PAGE"));
+        openBookmarkedArticleButton.addActionListener(e -> openSelectedBookmarkedArticle());
+        removeBookmarkButton.addActionListener(e -> removeSelectedBookmark());
     }
 
     private void fetchHotTopics() {
@@ -449,9 +676,104 @@ public class MainFrame extends JFrame {
         currentArticles = null;
         displayedArticles = null;
 
+        cardLayout.show(mainPanel, "NEWS_PAGE");
+
         fetchHotTopics();
     }
 
+    private void removeSelectedBookmark() {
+        int selectedRow = bookmarkTable.getSelectedRow();
+
+        if (selectedRow == -1) {
+            bookmarkStatusLabel.setText("Please select a bookmark to remove.");
+            return;
+        }
+
+        if (bookmarks == null || selectedRow >= bookmarks.size()) {
+            bookmarkStatusLabel.setText("Could not find the selected bookmark.");
+            return;
+        }
+
+        Bookmark removedBookmark = bookmarks.remove(selectedRow);
+
+
+        saveBookmarksToFile();
+        refreshBookmarkTable();
+
+        if (removedBookmark != null && removedBookmark.getArticle() != null) {
+            bookmarkStatusLabel.setText("Removed bookmark: " + removedBookmark.getArticle().getTitle());
+        } else {
+            bookmarkStatusLabel.setText("Bookmark removed.");
+        }
+    }
+    private void saveBookmarksToFile() {
+        try {
+            bookmarkStorage.saveBookmarks(bookmarks);
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    "Bookmark was added, but could not be saved locally: " + ex.getMessage(),
+                    "Bookmark Save Error",
+                    JOptionPane.ERROR_MESSAGE
+            );
+        }
+    }
+
+    private void openSelectedBookmarkedArticle() {
+        int selectedRow = bookmarkTable.getSelectedRow();
+
+        if (selectedRow == -1) {
+            bookmarkStatusLabel.setText("Please select a bookmarked article to open.");
+            return;
+        }
+
+        if (bookmarks == null || selectedRow >= bookmarks.size()) {
+            bookmarkStatusLabel.setText("Could not find the selected bookmark.");
+            return;
+        }
+
+        Bookmark selectedBookmark = bookmarks.get(selectedRow);
+        NewsArticle article = selectedBookmark.getArticle();
+
+        if (article == null) {
+            bookmarkStatusLabel.setText("This bookmark does not contain a valid article.");
+            return;
+        }
+
+        String url = article.getUrl();
+
+        if (url == null || url.trim().isEmpty()) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    "No URL available for this bookmarked article.",
+                    "Missing URL",
+                    JOptionPane.WARNING_MESSAGE
+            );
+            return;
+        }
+
+        if (!Desktop.isDesktopSupported() || !Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    "Opening URLs is not supported on this system.",
+                    "Unsupported Action",
+                    JOptionPane.ERROR_MESSAGE
+            );
+            return;
+        }
+
+        try {
+            Desktop.getDesktop().browse(new URI(url));
+            bookmarkStatusLabel.setText("Opened: " + article.getTitle());
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    "Failed to open article: " + ex.getMessage(),
+                    "Error",
+                    JOptionPane.ERROR_MESSAGE
+            );
+        }
+    }
     private void openSelectedArticle() {
         int selectedRow = articleTable.getSelectedRow();
 
@@ -484,6 +806,106 @@ public class MainFrame extends JFrame {
         } catch (Exception ex) {
             showError("Failed to open article: " + ex.getMessage());
         }
+    }
+
+    private void addSelectedArticleToBookmarks() {
+        int selectedRow = articleTable.getSelectedRow();
+
+        if (selectedRow == -1) {
+            statusLabel.setText("Please select an article before bookmarking.");
+            JOptionPane.showMessageDialog(
+                    this,
+                    "Please select an article first.",
+                    "No Article Selected",
+                    JOptionPane.WARNING_MESSAGE
+            );
+            return;
+        }
+
+        if (displayedArticles == null || selectedRow >= displayedArticles.size()) {
+            statusLabel.setText("Could not find the selected article.");
+            return;
+        }
+
+        NewsArticle selectedArticle = displayedArticles.get(selectedRow);
+
+        if (isAlreadyBookmarked(selectedArticle)) {
+            statusLabel.setText("This article is already bookmarked.");
+            JOptionPane.showMessageDialog(
+                    this,
+                    "This article is already bookmarked.",
+                    "Duplicate Bookmark",
+                    JOptionPane.INFORMATION_MESSAGE
+            );
+            return;
+        }
+
+        String savedAt = LocalDateTime.now().format(
+                DateTimeFormatter.ofPattern("dd MMMM yyyy, hh:mm a")
+        );
+
+        Bookmark bookmark = new Bookmark(selectedArticle, savedAt);
+        bookmarks.add(bookmark);
+
+        saveBookmarksToFile();
+
+        statusLabel.setText("Bookmarked: " + selectedArticle.getTitle());
+    }
+
+    private boolean isAlreadyBookmarked(NewsArticle article) {
+        if (article == null) {
+            return false;
+        }
+
+        String articleUrl = article.getUrl();
+
+        for (Bookmark bookmark : bookmarks) {
+            NewsArticle savedArticle = bookmark.getArticle();
+
+            if (savedArticle == null) {
+                continue;
+            }
+
+            String savedUrl = savedArticle.getUrl();
+
+            if (articleUrl != null
+                    && savedUrl != null
+                    && articleUrl.equalsIgnoreCase(savedUrl)) {
+                return true;
+            }
+
+            if ((articleUrl == null || articleUrl.isBlank())
+                    && article.getTitle() != null
+                    && savedArticle.getTitle() != null
+                    && article.getTitle().equalsIgnoreCase(savedArticle.getTitle())) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private void refreshBookmarkTable() {
+        bookmarkTableModel.setRowCount(0);
+
+        if (bookmarks.isEmpty()) {
+            bookmarkStatusLabel.setText("No bookmarks added yet.");
+            return;
+        }
+
+        for (Bookmark bookmark : bookmarks) {
+            NewsArticle article = bookmark.getArticle();
+
+            bookmarkTableModel.addRow(new Object[]{
+                    article.getTitle(),
+                    buildKeyPoints(article),
+                    article.getSource(),
+                    formatPublishedDate(article.getPublishedAt()),
+                    bookmark.getSavedAt()
+            });
+        }
+
+        bookmarkStatusLabel.setText("Showing " + bookmarks.size() + " bookmarked articles.");
     }
 
     private void populateTable(List<NewsArticle> articles, String context) {
@@ -542,6 +964,15 @@ public class MainFrame extends JFrame {
         resetButton.setEnabled(!loading);
         refreshButton.setEnabled(!loading);
         openButton.setEnabled(!loading);
+        addBookmarkButton.setEnabled(!loading);
+        viewBookmarksButton.setEnabled(!loading);
+        if (openBookmarkedArticleButton != null) {
+            openBookmarkedArticleButton.setEnabled(!loading);
+        }
+
+        if (removeBookmarkButton != null) {
+            removeBookmarkButton.setEnabled(!loading);
+        }
 
         searchField.setEnabled(!loading);
 
