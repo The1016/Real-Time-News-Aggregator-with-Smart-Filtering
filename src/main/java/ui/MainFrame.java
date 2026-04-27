@@ -4,28 +4,29 @@ import filter.FilterEngine;
 import model.Bookmark;
 import model.NewsArticle;
 import service.APIConfig;
-import service.NewsService;
 import service.BookmarkStorage;
+import service.NewsService;
 
+import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
+import javax.swing.JScrollBar;
 import javax.swing.JScrollPane;
 import javax.swing.JTable;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.SwingWorker;
 import javax.swing.UIManager;
-import javax.swing.BorderFactory;
+import javax.swing.plaf.basic.BasicScrollBarUI;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.JTableHeader;
 import javax.swing.table.TableColumn;
-import javax.swing.JScrollBar;
-import javax.swing.plaf.basic.BasicScrollBarUI;
 
 import java.awt.BorderLayout;
 import java.awt.CardLayout;
@@ -37,7 +38,9 @@ import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.GridLayout;
 import java.net.URI;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
@@ -59,6 +62,8 @@ public class MainFrame extends JFrame {
 
     private JComboBox<String> categoryComboBox;
     private JComboBox<String> sourceComboBox;
+    private JComboBox<String> dateRangeComboBox;
+    private JComboBox<String> bookmarkDateRangeComboBox;
 
     private JButton fetchButton;
     private JButton searchButton;
@@ -71,8 +76,15 @@ public class MainFrame extends JFrame {
     private JButton backToNewsButton;
     private JButton openBookmarkedArticleButton;
     private JButton removeBookmarkButton;
+    private JButton applyDateFilterButton;
+    private JButton applyBookmarkDateFilterButton;
+    private JButton resetBookmarkDateFilterButton;
+    private JButton chooseDateButton;
+    private JButton chooseBookmarkDateButton;
 
     private JTextField searchField;
+    private JTextField specificDateField;
+    private JTextField bookmarkSpecificDateField;
 
     private JTable articleTable;
     private JTable bookmarkTable;
@@ -90,7 +102,7 @@ public class MainFrame extends JFrame {
     private List<NewsArticle> currentArticles;
     private List<NewsArticle> displayedArticles;
     private List<Bookmark> bookmarks;
-
+    private List<Bookmark> displayedBookmarks;
 
     private CardLayout cardLayout;
     private JPanel mainPanel;
@@ -102,6 +114,7 @@ public class MainFrame extends JFrame {
         filterEngine = new FilterEngine();
         bookmarkStorage = new BookmarkStorage();
         bookmarks = bookmarkStorage.loadBookmarks();
+        displayedBookmarks = bookmarks;
 
         applyDarkTheme();
 
@@ -117,6 +130,7 @@ public class MainFrame extends JFrame {
         filterEngine = new FilterEngine();
         bookmarkStorage = new BookmarkStorage();
         bookmarks = bookmarkStorage.loadBookmarks();
+        displayedBookmarks = bookmarks;
 
         applyDarkTheme();
 
@@ -205,6 +219,14 @@ public class MainFrame extends JFrame {
 
         sourceComboBox = new JComboBox<>(new String[]{"All Sources"});
 
+        dateRangeComboBox = new JComboBox<>(new String[]{
+                "All Dates",
+                "Today",
+                "Last 24 Hours",
+                "Last 3 Days",
+                "Last 1 Week"
+        });
+
         fetchButton = new JButton("Fetch News");
         searchButton = new JButton("Search");
         filterButton = new JButton("Filter");
@@ -213,16 +235,27 @@ public class MainFrame extends JFrame {
         openButton = new JButton("Open Article");
         addBookmarkButton = new JButton("Add Bookmark");
         viewBookmarksButton = new JButton("Bookmarks");
+        applyDateFilterButton = new JButton("Apply Date Filter");
+        chooseDateButton = new JButton("Choose Date");
 
         searchField = new JTextField(24);
 
+        specificDateField = new JTextField(10);
+        specificDateField.setEditable(false);
+        specificDateField.setToolTipText("Click Choose Date to select a date");
+
         categoryComboBox.setPreferredSize(new Dimension(150, 30));
         sourceComboBox.setPreferredSize(new Dimension(180, 30));
+        dateRangeComboBox.setPreferredSize(new Dimension(150, 30));
         searchField.setPreferredSize(new Dimension(260, 30));
+        specificDateField.setPreferredSize(new Dimension(120, 30));
 
         styleComboBox(categoryComboBox);
         styleComboBox(sourceComboBox);
+        styleComboBox(dateRangeComboBox);
+
         styleTextField(searchField);
+        styleTextField(specificDateField);
 
         styleButton(fetchButton);
         styleButton(searchButton);
@@ -232,6 +265,8 @@ public class MainFrame extends JFrame {
         styleButton(openButton);
         styleButton(addBookmarkButton);
         styleButton(viewBookmarksButton);
+        styleButton(applyDateFilterButton);
+        styleButton(chooseDateButton);
 
         JPanel fetchPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 10));
         fetchPanel.setBackground(PANEL_COLOR);
@@ -263,10 +298,27 @@ public class MainFrame extends JFrame {
         filterPanel.add(openButton);
         filterPanel.add(addBookmarkButton);
 
-        JPanel topLeftContainer = new JPanel(new GridLayout(2, 1));
+        JPanel datePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 10));
+        datePanel.setBackground(PANEL_COLOR);
+
+        JLabel dateRangeLabel = new JLabel("Date Range:");
+        JLabel specificDateLabel = new JLabel("Specific Date:");
+
+        styleLabel(dateRangeLabel);
+        styleLabel(specificDateLabel);
+
+        datePanel.add(dateRangeLabel);
+        datePanel.add(dateRangeComboBox);
+        datePanel.add(specificDateLabel);
+        datePanel.add(specificDateField);
+        datePanel.add(chooseDateButton);
+        datePanel.add(applyDateFilterButton);
+
+        JPanel topLeftContainer = new JPanel(new GridLayout(3, 1));
         topLeftContainer.setBackground(PANEL_COLOR);
         topLeftContainer.add(fetchPanel);
         topLeftContainer.add(filterPanel);
+        topLeftContainer.add(datePanel);
 
         JPanel topRightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 12, 10));
         topRightPanel.setBackground(PANEL_COLOR);
@@ -278,11 +330,11 @@ public class MainFrame extends JFrame {
         topContainer.add(topLeftContainer, BorderLayout.CENTER);
         topContainer.add(topRightPanel, BorderLayout.EAST);
 
-        // This creates one clean full-width line under the whole top area.
         topContainer.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, GRID_COLOR));
 
         newsPage.add(topContainer, BorderLayout.NORTH);
     }
+
     private void styleScrollPane(JScrollPane scrollPane) {
         scrollPane.setBackground(BACKGROUND_COLOR);
         scrollPane.getViewport().setBackground(BACKGROUND_COLOR);
@@ -432,17 +484,63 @@ public class MainFrame extends JFrame {
         styleButton(removeBookmarkButton);
         styleButton(backToNewsButton);
 
-        JPanel leftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 10));
+        JPanel titleRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 10));
+        titleRow.setBackground(PANEL_COLOR);
+        titleRow.add(titleLabel);
+        titleRow.add(openBookmarkedArticleButton);
+        titleRow.add(removeBookmarkButton);
+
+        bookmarkDateRangeComboBox = new JComboBox<>(new String[]{
+                "All Dates",
+                "Today",
+                "Last 24 Hours",
+                "Last 3 Days",
+                "Last 1 Week"
+        });
+
+        bookmarkSpecificDateField = new JTextField(10);
+        bookmarkSpecificDateField.setEditable(false);
+        bookmarkSpecificDateField.setToolTipText("Click Choose Date to select a date");
+
+        chooseBookmarkDateButton = new JButton("Choose Date");
+        applyBookmarkDateFilterButton = new JButton("Apply Date Filter");
+        resetBookmarkDateFilterButton = new JButton("Reset Date Filter");
+
+        bookmarkDateRangeComboBox.setPreferredSize(new Dimension(150, 30));
+        bookmarkSpecificDateField.setPreferredSize(new Dimension(120, 30));
+
+        styleComboBox(bookmarkDateRangeComboBox);
+        styleTextField(bookmarkSpecificDateField);
+        styleButton(chooseBookmarkDateButton);
+        styleButton(applyBookmarkDateFilterButton);
+        styleButton(resetBookmarkDateFilterButton);
+
+        JLabel bookmarkDateRangeLabel = new JLabel("Date Range:");
+        JLabel bookmarkSpecificDateLabel = new JLabel("Specific Date:");
+
+        styleLabel(bookmarkDateRangeLabel);
+        styleLabel(bookmarkSpecificDateLabel);
+
+        JPanel dateRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 10));
+        dateRow.setBackground(PANEL_COLOR);
+        dateRow.add(bookmarkDateRangeLabel);
+        dateRow.add(bookmarkDateRangeComboBox);
+        dateRow.add(bookmarkSpecificDateLabel);
+        dateRow.add(bookmarkSpecificDateField);
+        dateRow.add(chooseBookmarkDateButton);
+        dateRow.add(applyBookmarkDateFilterButton);
+        dateRow.add(resetBookmarkDateFilterButton);
+
+        JPanel leftPanel = new JPanel(new GridLayout(2, 1));
         leftPanel.setBackground(PANEL_COLOR);
-        leftPanel.add(titleLabel);
-        leftPanel.add(openBookmarkedArticleButton);
-        leftPanel.add(removeBookmarkButton);
+        leftPanel.add(titleRow);
+        leftPanel.add(dateRow);
 
         JPanel rightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 12, 10));
         rightPanel.setBackground(PANEL_COLOR);
         rightPanel.add(backToNewsButton);
 
-        topPanel.add(leftPanel, BorderLayout.WEST);
+        topPanel.add(leftPanel, BorderLayout.CENTER);
         topPanel.add(rightPanel, BorderLayout.EAST);
 
         String[] bookmarkColumns = {"Title", "Key Points", "Source", "Published Date", "Saved At"};
@@ -511,10 +609,12 @@ public class MainFrame extends JFrame {
         fetchButton.addActionListener(e -> fetchByCategory());
         searchButton.addActionListener(e -> fetchByKeyword());
         filterButton.addActionListener(e -> filterCurrentArticles());
+        applyDateFilterButton.addActionListener(e -> filterCurrentArticles());
         resetButton.addActionListener(e -> resetFilter());
         refreshButton.addActionListener(e -> refreshApp());
         openButton.addActionListener(e -> openSelectedArticle());
 
+        chooseDateButton.addActionListener(e -> showCalendarPopup(specificDateField, chooseDateButton));
 
         addBookmarkButton.addActionListener(e -> addSelectedArticleToBookmarks());
 
@@ -524,8 +624,127 @@ public class MainFrame extends JFrame {
         });
 
         backToNewsButton.addActionListener(e -> cardLayout.show(mainPanel, "NEWS_PAGE"));
+
         openBookmarkedArticleButton.addActionListener(e -> openSelectedBookmarkedArticle());
         removeBookmarkButton.addActionListener(e -> removeSelectedBookmark());
+
+        chooseBookmarkDateButton.addActionListener(e ->
+                showCalendarPopup(bookmarkSpecificDateField, chooseBookmarkDateButton)
+        );
+
+        applyBookmarkDateFilterButton.addActionListener(e -> filterBookmarksByDate());
+
+        resetBookmarkDateFilterButton.addActionListener(e -> {
+            bookmarkDateRangeComboBox.setSelectedIndex(0);
+            bookmarkSpecificDateField.setText("");
+            refreshBookmarkTable();
+        });
+    }
+
+    private void showCalendarPopup(JTextField targetField, JButton anchorButton) {
+        JPopupMenu calendarPopup = new JPopupMenu();
+        calendarPopup.setBackground(PANEL_COLOR);
+        calendarPopup.setBorder(BorderFactory.createLineBorder(GRID_COLOR, 1));
+
+        LocalDate today = LocalDate.now();
+
+        JPanel calendarPanel = new JPanel(new BorderLayout());
+        calendarPanel.setBackground(PANEL_COLOR);
+        calendarPanel.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+
+        JLabel monthLabel = new JLabel("", JLabel.CENTER);
+        monthLabel.setForeground(TEXT_COLOR);
+        monthLabel.setFont(new Font("Arial", Font.BOLD, 15));
+
+        JButton previousButton = new JButton("<");
+        JButton nextButton = new JButton(">");
+
+        styleButton(previousButton);
+        styleButton(nextButton);
+
+        JPanel headerPanel = new JPanel(new BorderLayout());
+        headerPanel.setBackground(PANEL_COLOR);
+        headerPanel.add(previousButton, BorderLayout.WEST);
+        headerPanel.add(monthLabel, BorderLayout.CENTER);
+        headerPanel.add(nextButton, BorderLayout.EAST);
+
+        JPanel daysPanel = new JPanel(new GridLayout(0, 7, 4, 4));
+        daysPanel.setBackground(PANEL_COLOR);
+
+        final YearMonth[] currentMonth = {YearMonth.from(today)};
+
+        Runnable refreshCalendar = new Runnable() {
+            @Override
+            public void run() {
+                daysPanel.removeAll();
+
+                monthLabel.setText(
+                        currentMonth[0].getMonth().toString() + " " + currentMonth[0].getYear()
+                );
+
+                String[] dayNames = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
+
+                for (String dayName : dayNames) {
+                    JLabel dayLabel = new JLabel(dayName, JLabel.CENTER);
+                    dayLabel.setForeground(MUTED_TEXT_COLOR);
+                    dayLabel.setFont(new Font("Arial", Font.BOLD, 12));
+                    daysPanel.add(dayLabel);
+                }
+
+                LocalDate firstDayOfMonth = currentMonth[0].atDay(1);
+                int firstDayPosition = firstDayOfMonth.getDayOfWeek().getValue() % 7;
+
+                for (int i = 0; i < firstDayPosition; i++) {
+                    JLabel emptyLabel = new JLabel("");
+                    daysPanel.add(emptyLabel);
+                }
+
+                int daysInMonth = currentMonth[0].lengthOfMonth();
+
+                for (int day = 1; day <= daysInMonth; day++) {
+                    LocalDate selectedDate = currentMonth[0].atDay(day);
+
+                    JButton dayButton = new JButton(String.valueOf(day));
+                    dayButton.setFocusPainted(false);
+                    dayButton.setFont(new Font("Arial", Font.PLAIN, 12));
+                    dayButton.setBackground(FIELD_COLOR);
+                    dayButton.setForeground(TEXT_COLOR);
+                    dayButton.setBorder(BorderFactory.createLineBorder(GRID_COLOR, 1));
+
+                    if (selectedDate.equals(today)) {
+                        dayButton.setBackground(SELECTION_COLOR);
+                    }
+
+                    dayButton.addActionListener(e -> {
+                        targetField.setText(selectedDate.toString());
+                        calendarPopup.setVisible(false);
+                    });
+
+                    daysPanel.add(dayButton);
+                }
+
+                daysPanel.revalidate();
+                daysPanel.repaint();
+            }
+        };
+
+        previousButton.addActionListener(e -> {
+            currentMonth[0] = currentMonth[0].minusMonths(1);
+            refreshCalendar.run();
+        });
+
+        nextButton.addActionListener(e -> {
+            currentMonth[0] = currentMonth[0].plusMonths(1);
+            refreshCalendar.run();
+        });
+
+        refreshCalendar.run();
+
+        calendarPanel.add(headerPanel, BorderLayout.NORTH);
+        calendarPanel.add(daysPanel, BorderLayout.CENTER);
+
+        calendarPopup.add(calendarPanel);
+        calendarPopup.show(anchorButton, 0, anchorButton.getHeight());
     }
 
     private void fetchHotTopics() {
@@ -626,15 +845,20 @@ public class MainFrame extends JFrame {
     private void filterCurrentArticles() {
         String keyword = searchField.getText();
         String selectedSource = (String) sourceComboBox.getSelectedItem();
+        String selectedDateRange = (String) dateRangeComboBox.getSelectedItem();
+        String specificDate = specificDateField.getText();
 
-        System.out.println("[FILTER] Keyword: " + keyword + " | Source: " + selectedSource);
+        System.out.println("[FILTER] Keyword: " + keyword
+                + " | Source: " + selectedSource
+                + " | Date Range: " + selectedDateRange
+                + " | Specific Date: " + specificDate);
 
         if (currentArticles == null || currentArticles.isEmpty()) {
             statusLabel.setText("Please fetch news first before filtering.");
             return;
         }
 
-        if (!filterEngine.hasAnyFilter(keyword, selectedSource)) {
+        if (!filterEngine.hasAnyFilter(keyword, selectedSource, selectedDateRange, specificDate)) {
             populateTable(currentArticles, "current results");
             return;
         }
@@ -642,16 +866,26 @@ public class MainFrame extends JFrame {
         List<NewsArticle> filteredArticles = filterEngine.applyFilters(
                 currentArticles,
                 keyword,
-                selectedSource
+                selectedSource,
+                selectedDateRange,
+                specificDate
         );
 
-        String context = filterEngine.buildFilterContext(keyword, selectedSource);
+        String context = filterEngine.buildFilterContext(
+                keyword,
+                selectedSource,
+                selectedDateRange,
+                specificDate
+        );
+
         populateTable(filteredArticles, context);
     }
 
     private void resetFilter() {
         searchField.setText("");
+        specificDateField.setText("");
         sourceComboBox.setSelectedIndex(0);
+        dateRangeComboBox.setSelectedIndex(0);
 
         if (currentArticles == null || currentArticles.isEmpty()) {
             statusLabel.setText("No articles loaded. Fetching today's hot topics again.");
@@ -666,7 +900,9 @@ public class MainFrame extends JFrame {
         System.out.println("[REFRESH] Refreshing...");
 
         searchField.setText("");
+        specificDateField.setText("");
         categoryComboBox.setSelectedItem("General");
+        dateRangeComboBox.setSelectedIndex(0);
 
         sourceComboBox.removeAllItems();
         sourceComboBox.addItem("All Sources");
@@ -689,13 +925,14 @@ public class MainFrame extends JFrame {
             return;
         }
 
-        if (bookmarks == null || selectedRow >= bookmarks.size()) {
+        if (displayedBookmarks == null || selectedRow >= displayedBookmarks.size()) {
             bookmarkStatusLabel.setText("Could not find the selected bookmark.");
             return;
         }
 
-        Bookmark removedBookmark = bookmarks.remove(selectedRow);
+        Bookmark removedBookmark = displayedBookmarks.get(selectedRow);
 
+        bookmarks.remove(removedBookmark);
 
         saveBookmarksToFile();
         refreshBookmarkTable();
@@ -706,6 +943,7 @@ public class MainFrame extends JFrame {
             bookmarkStatusLabel.setText("Bookmark removed.");
         }
     }
+
     private void saveBookmarksToFile() {
         try {
             bookmarkStorage.saveBookmarks(bookmarks);
@@ -727,12 +965,12 @@ public class MainFrame extends JFrame {
             return;
         }
 
-        if (bookmarks == null || selectedRow >= bookmarks.size()) {
+        if (displayedBookmarks == null || selectedRow >= displayedBookmarks.size()) {
             bookmarkStatusLabel.setText("Could not find the selected bookmark.");
             return;
         }
 
-        Bookmark selectedBookmark = bookmarks.get(selectedRow);
+        Bookmark selectedBookmark = displayedBookmarks.get(selectedRow);
         NewsArticle article = selectedBookmark.getArticle();
 
         if (article == null) {
@@ -774,6 +1012,7 @@ public class MainFrame extends JFrame {
             );
         }
     }
+
     private void openSelectedArticle() {
         int selectedRow = articleTable.getSelectedRow();
 
@@ -886,15 +1125,79 @@ public class MainFrame extends JFrame {
     }
 
     private void refreshBookmarkTable() {
-        bookmarkTableModel.setRowCount(0);
+        displayedBookmarks = bookmarks;
+        loadBookmarksIntoTable(displayedBookmarks);
 
-        if (bookmarks.isEmpty()) {
+        if (displayedBookmarks.isEmpty()) {
             bookmarkStatusLabel.setText("No bookmarks added yet.");
+        } else {
+            bookmarkStatusLabel.setText("Showing " + displayedBookmarks.size() + " bookmarked articles.");
+        }
+    }
+
+    private void filterBookmarksByDate() {
+        if (bookmarks == null || bookmarks.isEmpty()) {
+            bookmarkStatusLabel.setText("No bookmarks available to filter.");
             return;
         }
 
+        String selectedDateRange = (String) bookmarkDateRangeComboBox.getSelectedItem();
+        String specificDate = bookmarkSpecificDateField.getText();
+
+        List<NewsArticle> bookmarkArticles = new ArrayList<>();
+
         for (Bookmark bookmark : bookmarks) {
+            if (bookmark != null && bookmark.getArticle() != null) {
+                bookmarkArticles.add(bookmark.getArticle());
+            }
+        }
+
+        List<NewsArticle> filteredArticles;
+
+        if (filterEngine.hasSpecificDate(specificDate)) {
+            filteredArticles = filterEngine.filterBySpecificDate(bookmarkArticles, specificDate);
+        } else if (filterEngine.hasDateRange(selectedDateRange)) {
+            filteredArticles = filterEngine.filterByDateRange(bookmarkArticles, selectedDateRange);
+        } else {
+            refreshBookmarkTable();
+            return;
+        }
+
+        displayedBookmarks = new ArrayList<>();
+
+        for (Bookmark bookmark : bookmarks) {
+            if (bookmark == null || bookmark.getArticle() == null) {
+                continue;
+            }
+
+            for (NewsArticle filteredArticle : filteredArticles) {
+                if (isSameArticle(bookmark.getArticle(), filteredArticle)) {
+                    displayedBookmarks.add(bookmark);
+                    break;
+                }
+            }
+        }
+
+        loadBookmarksIntoTable(displayedBookmarks);
+
+        bookmarkStatusLabel.setText(
+                "Showing " + displayedBookmarks.size() + " bookmarked articles after date filtering."
+        );
+    }
+
+    private void loadBookmarksIntoTable(List<Bookmark> bookmarksToShow) {
+        bookmarkTableModel.setRowCount(0);
+
+        if (bookmarksToShow == null) {
+            return;
+        }
+
+        for (Bookmark bookmark : bookmarksToShow) {
             NewsArticle article = bookmark.getArticle();
+
+            if (article == null) {
+                continue;
+            }
 
             bookmarkTableModel.addRow(new Object[]{
                     article.getTitle(),
@@ -904,8 +1207,28 @@ public class MainFrame extends JFrame {
                     bookmark.getSavedAt()
             });
         }
+    }
 
-        bookmarkStatusLabel.setText("Showing " + bookmarks.size() + " bookmarked articles.");
+    private boolean isSameArticle(NewsArticle firstArticle, NewsArticle secondArticle) {
+        if (firstArticle == null || secondArticle == null) {
+            return false;
+        }
+
+        String firstUrl = firstArticle.getUrl();
+        String secondUrl = secondArticle.getUrl();
+
+        if (firstUrl != null
+                && secondUrl != null
+                && firstUrl.equalsIgnoreCase(secondUrl)) {
+            return true;
+        }
+
+        String firstTitle = firstArticle.getTitle();
+        String secondTitle = secondArticle.getTitle();
+
+        return firstTitle != null
+                && secondTitle != null
+                && firstTitle.equalsIgnoreCase(secondTitle);
     }
 
     private void populateTable(List<NewsArticle> articles, String context) {
@@ -966,6 +1289,15 @@ public class MainFrame extends JFrame {
         openButton.setEnabled(!loading);
         addBookmarkButton.setEnabled(!loading);
         viewBookmarksButton.setEnabled(!loading);
+
+        if (applyDateFilterButton != null) {
+            applyDateFilterButton.setEnabled(!loading);
+        }
+
+        if (chooseDateButton != null) {
+            chooseDateButton.setEnabled(!loading);
+        }
+
         if (openBookmarkedArticleButton != null) {
             openBookmarkedArticleButton.setEnabled(!loading);
         }
@@ -974,16 +1306,33 @@ public class MainFrame extends JFrame {
             removeBookmarkButton.setEnabled(!loading);
         }
 
+        if (applyBookmarkDateFilterButton != null) {
+            applyBookmarkDateFilterButton.setEnabled(!loading);
+        }
+
+        if (resetBookmarkDateFilterButton != null) {
+            resetBookmarkDateFilterButton.setEnabled(!loading);
+        }
+
+        if (chooseBookmarkDateButton != null) {
+            chooseBookmarkDateButton.setEnabled(!loading);
+        }
+
         searchField.setEnabled(!loading);
+        specificDateField.setEnabled(!loading);
 
         categoryComboBox.setEnabled(true);
         sourceComboBox.setEnabled(true);
+        dateRangeComboBox.setEnabled(true);
 
         categoryComboBox.setBackground(FIELD_COLOR);
         categoryComboBox.setForeground(TEXT_COLOR);
 
         sourceComboBox.setBackground(FIELD_COLOR);
         sourceComboBox.setForeground(TEXT_COLOR);
+
+        dateRangeComboBox.setBackground(FIELD_COLOR);
+        dateRangeComboBox.setForeground(TEXT_COLOR);
 
         if (loading) {
             statusLabel.setText("Loading...");
